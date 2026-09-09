@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 4/11 completed
+**SIs:** 5/11 completed
 
 ### SI-03.1 — Infra: object storage, fila e worker no Docker Compose
 - **Status:** completed
@@ -38,9 +38,14 @@
   - `AppModule` now bootstraps a real Redis connection at startup — worth a full-suite check at final verification to confirm no other existing e2e/integration test regresses from this new dependency.
 
 ### SI-03.5 — Guard de propriedade do canal
-- **Status:** pending
-- **Tests:** no tests
-- **Observations:** none
+- **Status:** completed
+- **Tests:** no tests (empty Tests section — exercised by the E2E tests of the endpoints that use it, per the plan)
+- **Observations:**
+  - `nestjs-layer-separation.md` names `ChannelOwnerGuard` explicitly as the canonical example of "guard must delegate to a service" — followed that literally: the guard only reads `request.params.id`/`request.user.sub` and delegates the actual ownership decision to `VideosService.assertOwnership`.
+  - Created a minimal `src/videos/videos.service.ts` with just `assertOwnership` (no `VideosService` existed yet — SI-03.6 is the one that adds `initiateUpload` to this same file; not a scope violation, just the first slice of a file two SIs will build up).
+  - Added `ChannelsService.findByUserId` (no such lookup existed) so `VideosService` can resolve the caller's channel without reaching into `Channel`'s repository directly.
+  - Added `VideoNotFoundException` (404) and `ForbiddenChannelAccessException` (403, error code `FORBIDDEN`) to the shared `domain.exception.ts`, matching the Error Catalog and the project's existing `{ statusCode, error, message }` envelope convention — `assertOwnership` throws `VideoNotFoundException` before the ownership check when the video doesn't exist, even though that's not explicitly an AC of this SI (it naturally falls out of resolving the video by id, and every consuming endpoint's own AC already expects 404 VIDEO_NOT_FOUND).
+  - Deliberately did NOT create `videos.module.ts` — SI-03.6's technical actions explicitly own that file (registers controller + service + guard + entity together); this SI's code is unwired until then. `npx tsc --noEmit` still passes since nothing here requires the module to exist.
 
 ### SI-03.6 — Endpoint POST /videos (início do upload)
 - **Status:** pending
