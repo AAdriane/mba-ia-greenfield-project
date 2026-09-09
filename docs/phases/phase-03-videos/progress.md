@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 2/11 completed
+**SIs:** 3/11 completed
 
 ### SI-03.1 — Infra: object storage, fila e worker no Docker Compose
 - **Status:** completed
@@ -20,9 +20,13 @@
   - Docker Desktop's engine dropped mid-SI (WSL integration + named pipe both failed transiently) and all containers were lost; recovered by polling until the daemon came back and re-running `docker compose up -d`. No code impact, just a delay.
 
 ### SI-03.3 — StorageService (adapter S3/MinIO)
-- **Status:** pending
-- **Tests:** no tests
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 4 passing
+- **Observations:**
+  - `StorageService.onModuleInit` ensures the `videos` bucket exists (HeadBucket, falling back to CreateBucket) — this is the bucket-creation step deferred from SI-03.1's observations.
+  - Added `MINIO_ENDPOINT`/`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY`/`MINIO_BUCKET` to `env.validation.ts` and registered `storageConfig` in `app.module.ts`'s `ConfigModule.forRoot({ load: [...] })`, mirroring the existing config precedent (configs are centrally registered regardless of which feature module consumes them — `StorageModule` itself isn't imported into `AppModule` yet, that happens when `VideosModule` needs it in SI-03.6).
+  - S3 client is instantiated directly in `StorageService`'s constructor from the injected config rather than as a separate DI provider token — no other consumer needs the raw client yet, so a dedicated provider would be premature.
+  - Integration test performs real multipart PUTs against the presigned URLs (via `fetch`) against the real MinIO container — no mocking of the storage layer.
 
 ### SI-03.4 — QueueModule (BullMQ)
 - **Status:** pending
