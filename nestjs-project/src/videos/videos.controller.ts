@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Get,
   HttpCode,
   Param,
   Post,
@@ -22,6 +23,7 @@ import { ChannelOwnerGuard } from './guards/channel-owner.guard';
 import type {
   CompleteUploadResult,
   InitiateUploadResult,
+  VideoStatusResult,
 } from './videos.service';
 import { VideosService } from './videos.service';
 
@@ -114,5 +116,45 @@ export class VideosController {
     @Body() dto: CompleteUploadDto,
   ): Promise<CompleteUploadResult> {
     return this.videosService.completeUpload(id, user.sub, dto);
+  }
+
+  @Get(':id')
+  @UseGuards(ChannelOwnerGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Get video status',
+    description:
+      "Returns the video's current processing status for the owning channel.",
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Current video status',
+    schema: {
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        status: {
+          type: 'string',
+          enum: ['draft', 'uploaded', 'processing', 'ready', 'error'],
+        },
+        durationSeconds: { type: 'number', nullable: true },
+        createdAt: { type: 'string', format: 'date-time' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Not the owner of this video',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Video not found',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  async getStatus(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+  ): Promise<VideoStatusResult> {
+    return this.videosService.getStatus(id, user.sub);
   }
 }

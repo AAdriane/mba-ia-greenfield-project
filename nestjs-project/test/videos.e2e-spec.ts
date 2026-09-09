@@ -13,7 +13,7 @@ import { DomainExceptionFilter } from '../src/common/filters/domain-exception.fi
 import { ValidationExceptionFilter } from '../src/common/filters/validation-exception.filter';
 import { cleanAllTables } from '../src/test/create-test-data-source';
 import { User } from '../src/users/entities/user.entity';
-import { Video } from '../src/videos/entities/video.entity';
+import { Video, VideoStatus } from '../src/videos/entities/video.entity';
 
 describe('videos', () => {
   let app: INestApplication<App>;
@@ -289,6 +289,65 @@ describe('videos', () => {
 
       expect(matching).toHaveLength(1);
       expect(matching[0].data).toEqual({ videoId });
+    });
+  });
+
+  // GET /videos/:id
+  describe('GET /videos/:id', () => {
+    it('owner returns 200 with current status', async () => {
+      const email = 'status1@example.com';
+      const accessToken = await registerConfirmAndLogin(email);
+      const channelId = await getChannelIdForEmail(email);
+      const video = await dataSource.getRepository(Video).save(
+        dataSource.getRepository(Video).create({
+          channel_id: channelId,
+          original_storage_key: `${channelId}/original.mp4`,
+          status: VideoStatus.PROCESSING,
+        }),
+      );
+
+      const res = await request(app.getHttpServer())
+        .get(`/videos/${video.id}`)
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.id).toBe(video.id);
+      expect(res.body.status).toBe('processing');
+      expect(res.body).toHaveProperty('durationSeconds');
+      expect(res.body).toHaveProperty('createdAt');
+    });
+
+    it('non-owner returns 403', async () => {
+      const ownerEmail = 'status2-owner@example.com';
+      await registerConfirmAndLogin(ownerEmail);
+      const channelId = await getChannelIdForEmail(ownerEmail);
+      const video = await dataSource.getRepository(Video).save(
+        dataSource.getRepository(Video).create({
+          channel_id: channelId,
+          original_storage_key: `${channelId}/original.mp4`,
+        }),
+      );
+      const nonOwnerToken = await registerConfirmAndLogin(
+        'status2-nonowner@example.com',
+      );
+
+      const res = await request(app.getHttpServer())
+        .get(`/videos/${video.id}`)
+        .set('Authorization', `Bearer ${nonOwnerToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('FORBIDDEN');
+    });
+
+    it('nonexistent video returns 404 VIDEO_NOT_FOUND', async () => {
+      const accessToken = await registerConfirmAndLogin('status3@example.com');
+
+      const res = await request(app.getHttpServer())
+        .get('/videos/00000000-0000-0000-0000-000000000000')
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('VIDEO_NOT_FOUND');
     });
   });
 });

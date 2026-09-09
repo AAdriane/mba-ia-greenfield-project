@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 8/11 completed
+**SIs:** 9/11 completed
 
 ### SI-03.1 — Infra: object storage, fila e worker no Docker Compose
 - **Status:** completed
@@ -79,9 +79,11 @@
   - The corrupted-file test exercises the *real* BullMQ retry/backoff mechanism end-to-end (3 attempts, exponential backoff) rather than calling `onFailed` directly with a faked `Job`, for fidelity to AC #2's literal wording ("esgota as tentativas configuradas") — costs ~7s of real wall-clock backoff delay per test run, judged acceptable for an integration suite.
 
 ### SI-03.9 — Endpoint GET /videos/:id (status)
-- **Status:** pending
-- **Tests:** no tests
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 11 passing (full shared E2E file — 8 prior + 3 new)
+- **Observations:**
+  - `VideosService.getStatus` reuses `assertOwnership` (same as `completeUpload`) and explicitly `Number()`-casts `duration_seconds` before returning it — guards against the `numeric` column's string round-trip from `pg` (same gotcha flagged in SI-03.8) so the JSON response's `durationSeconds` is actually a number, not a numeric string.
+  - E2E scenarios insert the `Video` row directly (not via the real upload flow) since the spec's Setup only needs "a known status" — simpler and faster than driving a real multipart upload for a read-only endpoint's tests.
 
 ### SI-03.10 — Endpoint GET /videos/:id/stream
 - **Status:** pending

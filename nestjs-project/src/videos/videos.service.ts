@@ -36,6 +36,13 @@ export interface CompleteUploadResult {
   status: VideoStatus;
 }
 
+export interface VideoStatusResult {
+  id: string;
+  status: VideoStatus;
+  durationSeconds: number | null;
+  createdAt: Date;
+}
+
 @Injectable()
 export class VideosService {
   constructor(
@@ -143,6 +150,17 @@ export class VideosService {
     );
 
     return { id: video.id, status: video.status };
+  }
+
+  async getStatus(videoId: string, userId: string): Promise<VideoStatusResult> {
+    const video = await this.assertOwnership(videoId, userId);
+    return {
+      id: video.id,
+      status: video.status,
+      durationSeconds:
+        video.duration_seconds === null ? null : Number(video.duration_seconds),
+      createdAt: video.created_at,
+    };
   }
 
   async findByIdOrFail(videoId: string): Promise<Video> {
