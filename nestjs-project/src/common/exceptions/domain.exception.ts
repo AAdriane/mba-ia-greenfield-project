@@ -60,3 +60,9 @@ export class ForbiddenChannelAccessException extends DomainException {
     super('FORBIDDEN', 403, 'You do not have access to this video');
   }
 }
+
+export class InvalidMimeTypeException extends DomainException {
+  constructor() {
+    super('INVALID_MIME_TYPE', 400, 'mimeType must start with "video/"');
+  }
+}

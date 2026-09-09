@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 5/11 completed
+**SIs:** 6/11 completed
 
 ### SI-03.1 — Infra: object storage, fila e worker no Docker Compose
 - **Status:** completed
@@ -48,9 +48,14 @@
   - Deliberately did NOT create `videos.module.ts` — SI-03.6's technical actions explicitly own that file (registers controller + service + guard + entity together); this SI's code is unwired until then. `npx tsc --noEmit` still passes since nothing here requires the module to exist.
 
 ### SI-03.6 — Endpoint POST /videos (início do upload)
-- **Status:** pending
-- **Tests:** no tests
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 4 passing
+- **Observations:**
+  - E2E test authored via JIT spec read from `nestjs-project/specs/videos-create.plan.md`, saved to `test/videos.e2e-spec.ts` with top-level `describe('videos', ...)` per the spec's `target_file:` — this file will be extended by SI-03.7/03.9/03.10/03.11's own specs, which all share the same `target_file:` (one E2E file per controller, matching the project's file-conventions.md example).
+  - `mimeType` validation is NOT a class-validator DTO rule — `ValidationExceptionFilter` forces `error: 'VALIDATION_ERROR'` on every `BadRequestException`, which would clobber the AC-required `error: 'INVALID_MIME_TYPE'`. Enforced in `VideosService.initiateUpload` instead, throwing the new `InvalidMimeTypeException` domain exception (400) — `fileSizeBytes` bound IS a `@Max()` DTO rule since its AC only expects a generic validation error.
+  - The video's UUID is generated client-side (`crypto.randomUUID()`) before insert so the storage key (`{id}/original.<ext>`) can be computed and the multipart upload initiated before the row exists — reuses TD-04's "same UUID as public identifier" decision.
+  - Part size fixed at 100MiB (arbitrary but reasonable choice, not specified by the plan) — keeps part counts sane for the 10GB cap while comfortably clearing S3's 5MB-per-part minimum.
+  - Registered `VideosModule` directly in `AppModule` (domain module, same as `AuthModule`) — unlike `StorageModule`/`ChannelsModule` which are only imported by consumers.
 
 ### SI-03.7 — Endpoint POST /videos/:id/complete-upload
 - **Status:** pending
