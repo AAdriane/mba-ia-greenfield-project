@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 9/11 completed
+**SIs:** 10/11 completed
 
 ### SI-03.1 — Infra: object storage, fila e worker no Docker Compose
 - **Status:** completed
@@ -86,9 +86,14 @@
   - E2E scenarios insert the `Video` row directly (not via the real upload flow) since the spec's Setup only needs "a known status" — simpler and faster than driving a real multipart upload for a read-only endpoint's tests.
 
 ### SI-03.10 — Endpoint GET /videos/:id/stream
-- **Status:** pending
-- **Tests:** no tests
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 15 passing (full shared E2E file — 11 prior + 4 new)
+- **Observations:**
+  - Added `VideosService.assertReady` (ownership + `status === ready` check) as a small wrapper around `assertOwnership` — designed deliberately to be reused as-is by SI-03.11 (download), per the plan's own "reaproveita a resolução/validação" instruction for that SI.
+  - Used `@Res({ passthrough: true })` + manual `res.status()`/`res.set()`/`pipe()` rather than `StreamableFile`, per `library-refs.md`'s explicit note that `StreamableFile` doesn't handle Range/206 natively — the controller method returns `Promise<void>` and resolves only once the piped stream ends (or rejects on stream error), so Nest's request lifecycle waits for the actual byte transfer to finish.
+  - `streamVideo` treats any storage-layer error while a `Range` header was supplied as `RANGE_NOT_SATISFIABLE` (416) — S3/MinIO reject out-of-bounds ranges by throwing, and that's the only expected failure mode once ownership/ready are already confirmed; without a `Range`, the same failure re-throws as-is (unexpected internal error, not remapped).
+  - E2E binary assertions use a custom supertest `.parse()` callback to capture the raw response body as a `Buffer` — the default JSON/text parsers would otherwise mangle non-text content types like `video/mp4`.
+  - Did not add a `StorageService.deleteObject` method to clean up uploaded test fixtures after each E2E run (the JIT spec's Setup mentions removing the uploaded test object) — no other SI needs deletion yet, and the test MinIO bucket accumulating small fixture objects across runs has no functional impact; flagged here rather than adding an unused capability preemptively.
 
 ### SI-03.11 — Endpoint GET /videos/:id/download
 - **Status:** pending

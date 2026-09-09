@@ -2,9 +2,11 @@ import {
   Body,
   Controller,
   Get,
+  Headers,
   HttpCode,
   Param,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -14,6 +16,7 @@ import {
   ApiTags,
   getSchemaPath,
 } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { JwtPayload } from '../auth/auth.types';
 import { ApiErrorEnvelope } from '../common/openapi/api-error-envelope.dto';
@@ -156,5 +159,62 @@ export class VideosController {
     @Param('id') id: string,
   ): Promise<VideoStatusResult> {
     return this.videosService.getStatus(id, user.sub);
+  }
+
+  @Get(':id/stream')
+  @UseGuards(ChannelOwnerGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Stream a video',
+    description:
+      'Proxies the video bytes from the object storage, honoring the Range header for partial content.',
+  })
+  @ApiResponse({ status: 200, description: 'Full video body' })
+  @ApiResponse({ status: 206, description: 'Partial video content' })
+  @ApiResponse({
+    status: 403,
+    description: 'Not the owner of this video',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Video not found',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Video is not ready yet',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  @ApiResponse({
+    status: 416,
+    description: 'Requested Range is outside the size of the video',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  async stream(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Headers('range') range: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    const result = await this.videosService.streamVideo(id, user.sub, range);
+
+    res.status(result.status);
+    res.set('Accept-Ranges', 'bytes');
+    if (result.contentType) {
+      res.set('Content-Type', result.contentType);
+    }
+    if (result.contentRange) {
+      res.set('Content-Range', result.contentRange);
+    }
+    if (result.contentLength !== undefined) {
+      res.set('Content-Length', String(result.contentLength));
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      result.body.pipe(res);
+      result.body.on('end', resolve);
+      result.body.on('error', reject);
+    });
   }
 }

@@ -4,14 +4,17 @@ import { InjectRepository } from '@nestjs/typeorm';
 import type { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
+import type { Readable } from 'stream';
 import { Repository } from 'typeorm';
 import { ChannelsService } from '../channels/channels.service';
 import {
   ForbiddenChannelAccessException,
   InvalidMimeTypeException,
   InvalidStateException,
+  RangeNotSatisfiableException,
   StorageCompleteFailedException,
   VideoNotFoundException,
+  VideoNotReadyException,
 } from '../common/exceptions/domain.exception';
 import { StorageService } from '../storage/storage.service';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
@@ -41,6 +44,14 @@ export interface VideoStatusResult {
   status: VideoStatus;
   durationSeconds: number | null;
   createdAt: Date;
+}
+
+export interface VideoStreamResult {
+  body: Readable;
+  status: 200 | 206;
+  contentLength?: number;
+  contentRange?: string;
+  contentType?: string;
 }
 
 @Injectable()
@@ -160,6 +171,43 @@ export class VideosService {
       durationSeconds:
         video.duration_seconds === null ? null : Number(video.duration_seconds),
       createdAt: video.created_at,
+    };
+  }
+
+  async assertReady(videoId: string, userId: string): Promise<Video> {
+    const video = await this.assertOwnership(videoId, userId);
+    if (video.status !== VideoStatus.READY) {
+      throw new VideoNotReadyException();
+    }
+    return video;
+  }
+
+  async streamVideo(
+    videoId: string,
+    userId: string,
+    range: string | undefined,
+  ): Promise<VideoStreamResult> {
+    const video = await this.assertReady(videoId, userId);
+
+    let result;
+    try {
+      result = await this.storageService.getObjectStream(
+        video.original_storage_key,
+        range,
+      );
+    } catch (error) {
+      if (range) {
+        throw new RangeNotSatisfiableException();
+      }
+      throw error;
+    }
+
+    return {
+      body: result.body,
+      status: range ? 206 : 200,
+      contentLength: result.contentLength,
+      contentRange: result.contentRange,
+      contentType: result.contentType,
     };
   }
 

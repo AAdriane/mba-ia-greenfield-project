@@ -86,3 +86,19 @@ export class StorageCompleteFailedException extends DomainException {
     );
   }
 }
+
+export class VideoNotReadyException extends DomainException {
+  constructor() {
+    super('VIDEO_NOT_READY', 409, 'Video is not ready yet');
+  }
+}
+
+export class RangeNotSatisfiableException extends DomainException {
+  constructor() {
+    super(
+      'RANGE_NOT_SATISFIABLE',
+      416,
+      'The requested Range is outside the size of the video',
+    );
+  }
+}

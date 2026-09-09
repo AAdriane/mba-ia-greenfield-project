@@ -11,6 +11,7 @@ import { AuthService } from '../src/auth/auth.service';
 import { Channel } from '../src/channels/entities/channel.entity';
 import { DomainExceptionFilter } from '../src/common/filters/domain-exception.filter';
 import { ValidationExceptionFilter } from '../src/common/filters/validation-exception.filter';
+import { StorageService } from '../src/storage/storage.service';
 import { cleanAllTables } from '../src/test/create-test-data-source';
 import { User } from '../src/users/entities/user.entity';
 import { Video, VideoStatus } from '../src/videos/entities/video.entity';
@@ -20,6 +21,7 @@ describe('videos', () => {
   let dataSource: DataSource;
   let throttlerStorage: ThrottlerStorageService;
   let videoProcessingQueue: Queue;
+  let storageService: StorageService;
 
   beforeAll(async () => {
     const moduleFixture = await Test.createTestingModule({
@@ -46,6 +48,7 @@ describe('videos', () => {
     videoProcessingQueue = moduleFixture.get<Queue>(
       getQueueToken('video-processing'),
     );
+    storageService = moduleFixture.get(StorageService);
   });
 
   afterAll(async () => {
@@ -129,6 +132,39 @@ describe('videos', () => {
     );
 
     return { videoId: createRes.body.id, parts };
+  }
+
+  let readyVideoCounter = 0;
+  async function createReadyVideoWithContent(
+    channelId: string,
+    content: Buffer,
+  ): Promise<string> {
+    readyVideoCounter += 1;
+    const video = await dataSource.getRepository(Video).save(
+      dataSource.getRepository(Video).create({
+        channel_id: channelId,
+        original_storage_key: `stream-test/${readyVideoCounter}/original.mp4`,
+        status: VideoStatus.READY,
+      }),
+    );
+    await storageService.putObject(
+      video.original_storage_key,
+      content,
+      'video/mp4',
+    );
+    return video.id;
+  }
+
+  function requestBinary(path: string, accessToken: string) {
+    return request(app.getHttpServer())
+      .get(path)
+      .set('Authorization', `Bearer ${accessToken}`)
+      .buffer(true)
+      .parse((res, callback) => {
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => callback(null, Buffer.concat(chunks)));
+      });
   }
 
   // POST /videos
@@ -348,6 +384,85 @@ describe('videos', () => {
 
       expect(res.status).toBe(404);
       expect(res.body.error).toBe('VIDEO_NOT_FOUND');
+    });
+  });
+
+  // GET /videos/:id/stream
+  describe('GET /videos/:id/stream', () => {
+    it('no Range header returns 200 with the full video', async () => {
+      const email = 'stream1@example.com';
+      const accessToken = await registerConfirmAndLogin(email);
+      const channelId = await getChannelIdForEmail(email);
+      const content = Buffer.from(
+        Array.from({ length: 1000 }, (_, i) => i % 256),
+      );
+      const videoId = await createReadyVideoWithContent(channelId, content);
+
+      const res = await requestBinary(`/videos/${videoId}/stream`, accessToken);
+
+      expect(res.status).toBe(200);
+      expect(Buffer.compare(res.body as Buffer, content)).toBe(0);
+    });
+
+    it('Range: bytes=0-99 returns 206 with correct Content-Range', async () => {
+      const email = 'stream2@example.com';
+      const accessToken = await registerConfirmAndLogin(email);
+      const channelId = await getChannelIdForEmail(email);
+      const content = Buffer.from(
+        Array.from({ length: 1000 }, (_, i) => i % 256),
+      );
+      const videoId = await createReadyVideoWithContent(channelId, content);
+
+      const res = await requestBinary(
+        `/videos/${videoId}/stream`,
+        accessToken,
+      ).set('Range', 'bytes=0-99');
+
+      expect(res.status).toBe(206);
+      expect(res.headers['content-range']).toBe(`bytes 0-99/${content.length}`);
+      expect(Buffer.compare(res.body as Buffer, content.subarray(0, 100))).toBe(
+        0,
+      );
+    });
+
+    it('non-ready video returns 409 VIDEO_NOT_READY', async () => {
+      const email = 'stream3@example.com';
+      const accessToken = await registerConfirmAndLogin(email);
+      const channelId = await getChannelIdForEmail(email);
+      const video = await dataSource.getRepository(Video).save(
+        dataSource.getRepository(Video).create({
+          channel_id: channelId,
+          original_storage_key: `${channelId}/original.mp4`,
+          status: VideoStatus.PROCESSING,
+        }),
+      );
+
+      const res = await request(app.getHttpServer())
+        .get(`/videos/${video.id}/stream`)
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('VIDEO_NOT_READY');
+    });
+
+    it('non-owner returns 403', async () => {
+      const ownerEmail = 'stream4-owner@example.com';
+      await registerConfirmAndLogin(ownerEmail);
+      const channelId = await getChannelIdForEmail(ownerEmail);
+      const videoId = await createReadyVideoWithContent(
+        channelId,
+        Buffer.from('some video bytes'),
+      );
+      const nonOwnerToken = await registerConfirmAndLogin(
+        'stream4-nonowner@example.com',
+      );
+
+      const res = await request(app.getHttpServer())
+        .get(`/videos/${videoId}/stream`)
+        .set('Authorization', `Bearer ${nonOwnerToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('FORBIDDEN');
     });
   });
 });
