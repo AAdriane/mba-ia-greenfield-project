@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 10/11 completed
+**SIs:** 11/11 completed
 
 ### SI-03.1 — Infra: object storage, fila e worker no Docker Compose
 - **Status:** completed
@@ -96,6 +96,9 @@
   - Did not add a `StorageService.deleteObject` method to clean up uploaded test fixtures after each E2E run (the JIT spec's Setup mentions removing the uploaded test object) — no other SI needs deletion yet, and the test MinIO bucket accumulating small fixture objects across runs has no functional impact; flagged here rather than adding an unused capability preemptively.
 
 ### SI-03.11 — Endpoint GET /videos/:id/download
-- **Status:** pending
-- **Tests:** no tests
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 18 passing (full shared E2E file — 15 prior + 3 new)
+- **Observations:**
+  - Reused `VideosService.assertReady` verbatim (no changes needed) — exactly the "reaproveita a resolução/validação da SI-03.10" the plan calls for. `downloadVideo` is otherwise a simpler sibling of `streamVideo`: no `Range` handling, always `Content-Disposition: attachment`, always 200.
+  - Controller's `download` method mirrors `stream`'s manual `@Res({ passthrough: true })` + pipe pattern for consistency, even though download has no Range/206 branching to justify avoiding `StreamableFile` on its own — kept the same streaming mechanism across both endpoints rather than mixing two different response strategies for what's fundamentally the same object-storage proxy operation.
+  - This is the last SI of the phase — all 11 SIs are now implemented and their own tests pass.

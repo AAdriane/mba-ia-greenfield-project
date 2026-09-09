@@ -26,6 +26,7 @@ import { ChannelOwnerGuard } from './guards/channel-owner.guard';
 import type {
   CompleteUploadResult,
   InitiateUploadResult,
+  VideoDownloadResult,
   VideoStatusResult,
 } from './videos.service';
 import { VideosService } from './videos.service';
@@ -206,6 +207,56 @@ export class VideosController {
     }
     if (result.contentRange) {
       res.set('Content-Range', result.contentRange);
+    }
+    if (result.contentLength !== undefined) {
+      res.set('Content-Length', String(result.contentLength));
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      result.body.pipe(res);
+      result.body.on('end', resolve);
+      result.body.on('error', reject);
+    });
+  }
+
+  @Get(':id/download')
+  @UseGuards(ChannelOwnerGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Download a video',
+    description:
+      'Proxies the full video bytes from the object storage as an attachment.',
+  })
+  @ApiResponse({ status: 200, description: 'Full video body' })
+  @ApiResponse({
+    status: 403,
+    description: 'Not the owner of this video',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Video not found',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'Video is not ready yet',
+    schema: { $ref: getSchemaPath(ApiErrorEnvelope) },
+  })
+  async download(
+    @CurrentUser() user: JwtPayload,
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    const result: VideoDownloadResult = await this.videosService.downloadVideo(
+      id,
+      user.sub,
+    );
+
+    res.status(200);
+    res.set('Content-Disposition', 'attachment');
+    if (result.contentType) {
+      res.set('Content-Type', result.contentType);
     }
     if (result.contentLength !== undefined) {
       res.set('Content-Length', String(result.contentLength));

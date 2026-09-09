@@ -54,6 +54,12 @@ export interface VideoStreamResult {
   contentType?: string;
 }
 
+export interface VideoDownloadResult {
+  body: Readable;
+  contentLength?: number;
+  contentType?: string;
+}
+
 @Injectable()
 export class VideosService {
   constructor(
@@ -207,6 +213,22 @@ export class VideosService {
       status: range ? 206 : 200,
       contentLength: result.contentLength,
       contentRange: result.contentRange,
+      contentType: result.contentType,
+    };
+  }
+
+  async downloadVideo(
+    videoId: string,
+    userId: string,
+  ): Promise<VideoDownloadResult> {
+    const video = await this.assertReady(videoId, userId);
+    const result = await this.storageService.getObjectStream(
+      video.original_storage_key,
+    );
+
+    return {
+      body: result.body,
+      contentLength: result.contentLength,
       contentType: result.contentType,
     };
   }

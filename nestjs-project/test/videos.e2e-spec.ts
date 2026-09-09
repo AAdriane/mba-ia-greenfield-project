@@ -465,4 +465,64 @@ describe('videos', () => {
       expect(res.body.error).toBe('FORBIDDEN');
     });
   });
+
+  // GET /videos/:id/download
+  describe('GET /videos/:id/download', () => {
+    it('owner returns 200 with attachment header', async () => {
+      const email = 'download1@example.com';
+      const accessToken = await registerConfirmAndLogin(email);
+      const channelId = await getChannelIdForEmail(email);
+      const content = Buffer.from('the full downloadable video bytes');
+      const videoId = await createReadyVideoWithContent(channelId, content);
+
+      const res = await requestBinary(
+        `/videos/${videoId}/download`,
+        accessToken,
+      );
+
+      expect(res.status).toBe(200);
+      expect(res.headers['content-disposition']).toMatch(/^attachment/);
+      expect(Buffer.compare(res.body as Buffer, content)).toBe(0);
+    });
+
+    it('non-ready video returns 409 VIDEO_NOT_READY', async () => {
+      const email = 'download2@example.com';
+      const accessToken = await registerConfirmAndLogin(email);
+      const channelId = await getChannelIdForEmail(email);
+      const video = await dataSource.getRepository(Video).save(
+        dataSource.getRepository(Video).create({
+          channel_id: channelId,
+          original_storage_key: `${channelId}/original.mp4`,
+          status: VideoStatus.PROCESSING,
+        }),
+      );
+
+      const res = await request(app.getHttpServer())
+        .get(`/videos/${video.id}/download`)
+        .set('Authorization', `Bearer ${accessToken}`);
+
+      expect(res.status).toBe(409);
+      expect(res.body.error).toBe('VIDEO_NOT_READY');
+    });
+
+    it('non-owner returns 403', async () => {
+      const ownerEmail = 'download3-owner@example.com';
+      await registerConfirmAndLogin(ownerEmail);
+      const channelId = await getChannelIdForEmail(ownerEmail);
+      const videoId = await createReadyVideoWithContent(
+        channelId,
+        Buffer.from('some video bytes'),
+      );
+      const nonOwnerToken = await registerConfirmAndLogin(
+        'download3-nonowner@example.com',
+      );
+
+      const res = await request(app.getHttpServer())
+        .get(`/videos/${videoId}/download`)
+        .set('Authorization', `Bearer ${nonOwnerToken}`);
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('FORBIDDEN');
+    });
+  });
 });
