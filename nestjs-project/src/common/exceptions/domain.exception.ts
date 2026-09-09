@@ -66,3 +66,23 @@ export class InvalidMimeTypeException extends DomainException {
     super('INVALID_MIME_TYPE', 400, 'mimeType must start with "video/"');
   }
 }
+
+export class InvalidStateException extends DomainException {
+  constructor() {
+    super(
+      'INVALID_STATE',
+      409,
+      'Video is not in a state that allows this operation',
+    );
+  }
+}
+
+export class StorageCompleteFailedException extends DomainException {
+  constructor() {
+    super(
+      'STORAGE_COMPLETE_FAILED',
+      502,
+      'Storage rejected the multipart upload completion',
+    );
+  }
+}

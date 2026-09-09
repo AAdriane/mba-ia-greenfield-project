@@ -1,5 +1,7 @@
+import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import type { Queue } from 'bullmq';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
 import { Repository } from 'typeorm';
@@ -7,19 +9,31 @@ import { ChannelsService } from '../channels/channels.service';
 import {
   ForbiddenChannelAccessException,
   InvalidMimeTypeException,
+  InvalidStateException,
+  StorageCompleteFailedException,
   VideoNotFoundException,
 } from '../common/exceptions/domain.exception';
 import { StorageService } from '../storage/storage.service';
+import { CompleteUploadDto } from './dto/complete-upload.dto';
 import { CreateVideoDto } from './dto/create-video.dto';
-import { Video } from './entities/video.entity';
+import { Video, VideoStatus } from './entities/video.entity';
 
 const PART_SIZE_BYTES = 100 * 1024 * 1024;
+const COMPLETABLE_STATUSES: VideoStatus[] = [
+  VideoStatus.DRAFT,
+  VideoStatus.UPLOADED,
+];
 
 export interface InitiateUploadResult {
   id: string;
   uploadId: string;
   partSize: number;
   parts: { partNumber: number; url: string }[];
+}
+
+export interface CompleteUploadResult {
+  id: string;
+  status: VideoStatus;
 }
 
 @Injectable()
@@ -29,6 +43,8 @@ export class VideosService {
     private readonly videoRepository: Repository<Video>,
     private readonly channelsService: ChannelsService,
     private readonly storageService: StorageService,
+    @InjectQueue('video-processing')
+    private readonly videoProcessingQueue: Queue,
   ) {}
 
   async assertOwnership(videoId: string, userId: string): Promise<Video> {
@@ -94,5 +110,38 @@ export class VideosService {
     );
 
     return { id, uploadId, partSize: PART_SIZE_BYTES, parts };
+  }
+
+  async completeUpload(
+    videoId: string,
+    userId: string,
+    dto: CompleteUploadDto,
+  ): Promise<CompleteUploadResult> {
+    const video = await this.assertOwnership(videoId, userId);
+
+    if (!COMPLETABLE_STATUSES.includes(video.status)) {
+      throw new InvalidStateException();
+    }
+
+    try {
+      await this.storageService.completeMultipartUpload(
+        video.original_storage_key,
+        video.upload_id as string,
+        dto.parts,
+      );
+    } catch {
+      throw new StorageCompleteFailedException();
+    }
+
+    video.status = VideoStatus.PROCESSING;
+    await this.videoRepository.save(video);
+
+    await this.videoProcessingQueue.add(
+      'video.process',
+      { videoId: video.id },
+      { attempts: 3, backoff: { type: 'exponential', delay: 1000 } },
+    );
+
+    return { id: video.id, status: video.status };
   }
 }

@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 6/11 completed
+**SIs:** 7/11 completed
 
 ### SI-03.1 — Infra: object storage, fila e worker no Docker Compose
 - **Status:** completed
@@ -58,9 +58,14 @@
   - Registered `VideosModule` directly in `AppModule` (domain module, same as `AuthModule`) — unlike `StorageModule`/`ChannelsModule` which are only imported by consumers.
 
 ### SI-03.7 — Endpoint POST /videos/:id/complete-upload
-- **Status:** pending
-- **Tests:** no tests
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 10 passing (2 integration + 8 E2E)
+- **Observations:**
+  - `completeUpload` reuses `assertOwnership` (already loading the video for 404/403) even though `ChannelOwnerGuard` already ran the same check at the HTTP layer — the guard doesn't attach the loaded video to the request, so the service needs its own fetch regardless; reusing the existing method avoids duplicating the not-found/forbidden logic.
+  - Job name published to the queue is `video.process` (matching the Events/Messages section's event name exactly), not the generic `'process'` shown as a loose example in `library-refs.md`'s bullmq section — kept self-consistent with the plan's own documented event name.
+  - Both new test files call `queue.drain(true)` in `beforeEach`/on the shared `videoProcessingQueue` to prevent jobs from a previous test leaking into the next scenario's job-count assertions — no worker is registered in this phase yet (SI-03.8), so jobs just accumulate in `waiting` otherwise.
+  - `test/videos.e2e-spec.ts` now injects the real `video-processing` `Queue` (via `getQueueToken`) into the shared `describe('videos', ...)` setup so later SIs' scenarios can reuse it without re-deriving the token.
+  - `StorageCompleteFailedException` (502) and `InvalidStateException` (409) are defined but not yet exercised by a test — the plan's ACs for this SI only cover the happy path + 403/404/job-published; the 409/502 paths aren't in the spec's scenario list either. Worth a look before phase sign-off to confirm that's intentional (Error Catalog documents them, but AC coverage for the negative multipart-completion path is thin).
 
 ### SI-03.8 — Worker de processamento (FFmpeg)
 - **Status:** pending

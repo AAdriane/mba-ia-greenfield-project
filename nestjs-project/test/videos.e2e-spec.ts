@@ -1,6 +1,8 @@
+import { getQueueToken } from '@nestjs/bullmq';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { ThrottlerStorage, ThrottlerStorageService } from '@nestjs/throttler';
+import type { Queue } from 'bullmq';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
@@ -17,6 +19,7 @@ describe('videos', () => {
   let app: INestApplication<App>;
   let dataSource: DataSource;
   let throttlerStorage: ThrottlerStorageService;
+  let videoProcessingQueue: Queue;
 
   beforeAll(async () => {
     const moduleFixture = await Test.createTestingModule({
@@ -40,6 +43,9 @@ describe('videos', () => {
     dataSource = moduleFixture.get(DataSource);
     throttlerStorage =
       moduleFixture.get<ThrottlerStorageService>(ThrottlerStorage);
+    videoProcessingQueue = moduleFixture.get<Queue>(
+      getQueueToken('video-processing'),
+    );
   });
 
   afterAll(async () => {
@@ -49,6 +55,7 @@ describe('videos', () => {
   beforeEach(async () => {
     await cleanAllTables(dataSource);
     throttlerStorage.storage.clear();
+    await videoProcessingQueue.drain(true);
   });
 
   async function captureConfirmationToken(
@@ -91,6 +98,37 @@ describe('videos', () => {
       .getRepository(Channel)
       .findOneByOrFail({ user_id: user.id });
     return channel.id;
+  }
+
+  async function createVideoAndUploadParts(accessToken: string): Promise<{
+    videoId: string;
+    parts: { partNumber: number; eTag: string }[];
+  }> {
+    const createRes = await request(app.getHttpServer())
+      .post('/videos')
+      .set('Authorization', `Bearer ${accessToken}`)
+      .send({
+        fileName: 'video.mp4',
+        fileSizeBytes: 1024,
+        mimeType: 'video/mp4',
+      });
+
+    const parts = await Promise.all(
+      createRes.body.parts.map(
+        async (part: { partNumber: number; url: string }) => {
+          const res = await fetch(part.url, {
+            method: 'PUT',
+            body: Buffer.from(`part-${part.partNumber}-bytes`),
+          });
+          return {
+            partNumber: part.partNumber,
+            eTag: res.headers.get('etag') as string,
+          };
+        },
+      ),
+    );
+
+    return { videoId: createRes.body.id, parts };
   }
 
   // POST /videos
@@ -176,6 +214,81 @@ describe('videos', () => {
 
       expect(video.status).toBe('draft');
       expect(video.channel_id).toBe(channelId);
+    });
+  });
+
+  // POST /videos/:id/complete-upload
+  describe('POST /videos/:id/complete-upload', () => {
+    it('owner with valid parts returns 202 processing', async () => {
+      const accessToken = await registerConfirmAndLogin(
+        'complete1@example.com',
+      );
+      const { videoId, parts } = await createVideoAndUploadParts(accessToken);
+
+      const res = await request(app.getHttpServer())
+        .post(`/videos/${videoId}/complete-upload`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ parts });
+
+      expect(res.status).toBe(202);
+      expect(res.body.id).toBe(videoId);
+      expect(res.body.status).toBe('processing');
+    });
+
+    it('non-owner returns 403', async () => {
+      const ownerToken = await registerConfirmAndLogin(
+        'complete2-owner@example.com',
+      );
+      const { videoId, parts } = await createVideoAndUploadParts(ownerToken);
+      const nonOwnerToken = await registerConfirmAndLogin(
+        'complete2-nonowner@example.com',
+      );
+
+      const res = await request(app.getHttpServer())
+        .post(`/videos/${videoId}/complete-upload`)
+        .set('Authorization', `Bearer ${nonOwnerToken}`)
+        .send({ parts });
+
+      expect(res.status).toBe(403);
+      expect(res.body.error).toBe('FORBIDDEN');
+    });
+
+    it('nonexistent video returns 404 VIDEO_NOT_FOUND', async () => {
+      const accessToken = await registerConfirmAndLogin(
+        'complete3@example.com',
+      );
+
+      const res = await request(app.getHttpServer())
+        .post('/videos/00000000-0000-0000-0000-000000000000/complete-upload')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ parts: [{ partNumber: 1, eTag: '"fake"' }] });
+
+      expect(res.status).toBe(404);
+      expect(res.body.error).toBe('VIDEO_NOT_FOUND');
+    });
+
+    it('successful completion publishes the video.process job', async () => {
+      const accessToken = await registerConfirmAndLogin(
+        'complete4@example.com',
+      );
+      const { videoId, parts } = await createVideoAndUploadParts(accessToken);
+
+      const res = await request(app.getHttpServer())
+        .post(`/videos/${videoId}/complete-upload`)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ parts });
+
+      expect(res.status).toBe(202);
+
+      const jobs = await videoProcessingQueue.getJobs([
+        'waiting',
+        'delayed',
+        'active',
+      ]);
+      const matching = jobs.filter((job) => job.name === 'video.process');
+
+      expect(matching).toHaveLength(1);
+      expect(matching[0].data).toEqual({ videoId });
     });
   });
 });
