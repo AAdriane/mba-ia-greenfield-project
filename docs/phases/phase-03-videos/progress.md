@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 1/11 completed
+**SIs:** 2/11 completed
 
 ### SI-03.1 — Infra: object storage, fila e worker no Docker Compose
 - **Status:** completed
@@ -12,9 +12,12 @@
   - The `videos` bucket is not created by this SI (no AC requires it) — bucket creation is expected to be handled by `StorageService`/`StorageModule` in SI-03.3.
 
 ### SI-03.2 — Migration e entidade Video
-- **Status:** pending
-- **Tests:** no tests
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 5 passing
+- **Observations:**
+  - Migration generated via TypeORM CLI (`migration:generate`) against the real dev DB, then run with `migration:run` — matches Data Model exactly (enum `videos_status_enum`, FK to `channels.id`, `timestamptz` timestamps).
+  - Extended `src/test/create-test-data-source.ts`'s `cleanAllTables` helper to also truncate `videos` (deleted before `channels` to respect the FK) — this is shared test infra other SIs' integration tests will also rely on.
+  - Docker Desktop's engine dropped mid-SI (WSL integration + named pipe both failed transiently) and all containers were lost; recovered by polling until the daemon came back and re-running `docker compose up -d`. No code impact, just a delay.
 
 ### SI-03.3 — StorageService (adapter S3/MinIO)
 - **Status:** pending
