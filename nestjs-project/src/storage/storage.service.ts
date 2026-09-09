@@ -4,6 +4,7 @@ import {
   CreateMultipartUploadCommand,
   GetObjectCommand,
   HeadBucketCommand,
+  PutObjectCommand,
   S3Client,
   UploadPartCommand,
 } from '@aws-sdk/client-s3';
@@ -101,6 +102,21 @@ export class StorageService implements OnModuleInit {
             ETag: part.eTag,
           })),
         },
+      }),
+    );
+  }
+
+  async putObject(
+    key: string,
+    body: Buffer,
+    contentType: string,
+  ): Promise<void> {
+    await this.client.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
       }),
     );
   }

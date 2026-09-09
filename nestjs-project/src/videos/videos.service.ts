@@ -144,4 +144,34 @@ export class VideosService {
 
     return { id: video.id, status: video.status };
   }
+
+  async findByIdOrFail(videoId: string): Promise<Video> {
+    const video = await this.videoRepository.findOneBy({ id: videoId });
+    if (!video) {
+      throw new VideoNotFoundException();
+    }
+    return video;
+  }
+
+  async markReady(
+    videoId: string,
+    data: {
+      durationSeconds: number;
+      metadata: Record<string, unknown>;
+      thumbnailStorageKey: string;
+    },
+  ): Promise<void> {
+    const video = await this.findByIdOrFail(videoId);
+    video.status = VideoStatus.READY;
+    video.duration_seconds = data.durationSeconds;
+    video.metadata = data.metadata;
+    video.thumbnail_storage_key = data.thumbnailStorageKey;
+    await this.videoRepository.save(video);
+  }
+
+  async markError(videoId: string): Promise<void> {
+    const video = await this.findByIdOrFail(videoId);
+    video.status = VideoStatus.ERROR;
+    await this.videoRepository.save(video);
+  }
 }

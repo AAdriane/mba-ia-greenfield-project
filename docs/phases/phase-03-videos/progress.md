@@ -1,7 +1,7 @@
 # phase-03-videos — Progress
 
 **Status:** in_progress
-**SIs:** 7/11 completed
+**SIs:** 8/11 completed
 
 ### SI-03.1 — Infra: object storage, fila e worker no Docker Compose
 - **Status:** completed
@@ -68,9 +68,15 @@
   - `StorageCompleteFailedException` (502) and `InvalidStateException` (409) are defined but not yet exercised by a test — the plan's ACs for this SI only cover the happy path + 403/404/job-published; the 409/502 paths aren't in the spec's scenario list either. Worth a look before phase sign-off to confirm that's intentional (Error Catalog documents them, but AC coverage for the negative multipart-completion path is thin).
 
 ### SI-03.8 — Worker de processamento (FFmpeg)
-- **Status:** pending
-- **Tests:** no tests
-- **Observations:** none
+- **Status:** completed
+- **Tests:** 2 passing
+- **Observations:**
+  - Extracted a `WorkerModule` (`src/worker/worker.module.ts`) that duplicates `AppModule`'s Config/TypeOrm registration rather than reusing `AppModule` directly — deliberate: if the worker bootstrapped the real `AppModule`, the API process would *also* instantiate `VideoProcessingProcessor` (since it'd live inside the shared `VideosModule`) and start consuming jobs itself, racing the dedicated worker container. Kept `VideoProcessingProcessor` registered only in `WorkerModule`, not in `VideosModule`/`AppModule`. This duplication mirrors an already-established pattern in this codebase (integration tests like `auth.service.integration-spec.ts` duplicate the same Config/TypeOrm setup instead of importing `AppModule`).
+  - Added `StorageService.putObject` (plain single-shot PUT) — the existing storage methods were all multipart-upload-shaped; the worker needs a simple direct upload for the generated thumbnail.
+  - `Video.duration_seconds` is a `numeric` Postgres column, which `pg` returns as a string by default — `markReady` stores the raw ffprobe number fine (TypeORM writes it through), but any test/consumer reading it back must `Number(...)` it; documented via the test's explicit cast rather than adding a column transformer (out of scope for this SI).
+  - **Root-caused a real test-authoring bug during the fix loop (attempt 1/3):** the integration test's `Test.createTestingModule({...}).compile()` does NOT run Nest lifecycle hooks (`onModuleInit`) — `@nestjs/bullmq`'s `BullRegistrar` creates the actual BullMQ `Worker` instance from `onModuleInit`, so without calling `await moduleFixture.init()` after `compile()`, no worker ever attached to the queue and jobs sat unprocessed forever (both tests timed out identically). Fixed by adding the `.init()` call — this is a general gotcha for any integration test exercising `@Processor`-decorated classes, not `queue.module.spec.ts`-style tests that only resolve the `Queue` token (compile() alone is sufficient there since no worker needs to start).
+  - Test video fixture is synthesized on the fly via `ffmpeg -f lavfi ...` (testsrc + sine, 2s) instead of committing a binary fixture to the repo — no external file needed, works offline, consistent across environments.
+  - The corrupted-file test exercises the *real* BullMQ retry/backoff mechanism end-to-end (3 attempts, exponential backoff) rather than calling `onFailed` directly with a faked `Job`, for fidelity to AC #2's literal wording ("esgota as tentativas configuradas") — costs ~7s of real wall-clock backoff delay per test run, judged acceptable for an integration suite.
 
 ### SI-03.9 — Endpoint GET /videos/:id (status)
 - **Status:** pending
