@@ -1,6 +1,6 @@
 # phase-03-videos — Progress
 
-**Status:** in_progress
+**Status:** completed
 **SIs:** 11/11 completed
 
 ### SI-03.1 — Infra: object storage, fila e worker no Docker Compose
@@ -102,3 +102,42 @@
   - Reused `VideosService.assertReady` verbatim (no changes needed) — exactly the "reaproveita a resolução/validação da SI-03.10" the plan calls for. `downloadVideo` is otherwise a simpler sibling of `streamVideo`: no `Range` handling, always `Content-Disposition: attachment`, always 200.
   - Controller's `download` method mirrors `stream`'s manual `@Res({ passthrough: true })` + pipe pattern for consistency, even though download has no Range/206 branching to justify avoiding `StreamableFile` on its own — kept the same streaming mechanism across both endpoints rather than mixing two different response strategies for what's fundamentally the same object-storage proxy operation.
   - This is the last SI of the phase — all 11 SIs are now implemented and their own tests pass.
+
+## Final Verification
+
+Run after all 11 SIs were implemented, against the full stack in Docker.
+
+| Check | Result |
+|---|---|
+| `npm test` (unit + integration) | 28 suites, 158 tests passing |
+| `npm run test:e2e` | 4 suites, 70 tests passing |
+| `npx tsc --noEmit` | exit 0 |
+| `npm run lint` | exit 0 (25 warnings, 0 errors) |
+
+The first full-suite run of the phase exposed three problems that the
+per-SI runs could not, because no SI had ever run every suite together.
+Each was fixed in its own commit after SI-03.11:
+
+- **Jest was killed before producing output.** Default parallelism plus
+  `--runInBand` accumulating the module registry of all 28 suites
+  exhausted the VM. Replaced with a single worker recycled at 512MB.
+- **The migrations spec corrupted the shared database.** It still assumed
+  the two pre-videos migrations: it dropped the migrations table without
+  knowing about `CreateVideos`, left the videos table and both enum types
+  behind, and destroyed the videos foreign key by dropping `channels`
+  with CASCADE. The surviving enum then made the next run fail, leaving
+  the database without its core tables and breaking every later suite.
+- **Lint had been failing since before this phase.** The ESLint config was
+  unchanged and the largest offenders were files Phase 03 never touched.
+  All 187 errors were cleared, since the Definition of Done requires the
+  whole command to pass.
+
+### Follow-ups
+
+- No `StorageService.deleteObject`, so E2E fixture objects accumulate in
+  the MinIO bucket across runs. No functional impact (carried from
+  SI-03.11).
+- Access to every video endpoint is owner-only per TD-08. Public and
+  unlisted visibility is Phase 04 scope.
+- The video has no `title` column. `docs/project-plan.md` places video
+  title editing in Phase 04.
