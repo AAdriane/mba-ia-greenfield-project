@@ -13,6 +13,8 @@ docker compose ps   # all services must show status "running"
 Then verify each infrastructure service is actually ready to accept connections — not just running:
 
 - **PostgreSQL:** `docker compose exec db pg_isready -U streamtube` — expect `accepting connections`
+- **Redis:** `docker compose exec redis redis-cli ping` — expect `PONG`
+- **MinIO:** `curl -f http://localhost:9000/minio/health/live` — expect HTTP 200
 
 Only start the NestJS dev server (`npm run start:dev`) when the user **explicitly** asks to run the application — never as part of "start the environment".
 
@@ -34,6 +36,10 @@ docker compose exec nestjs-api npm run start:dev
 Services:
 - `nestjs-api` — NestJS API, port `3000`
 - `db` — PostgreSQL 17, port `5432`, database `streamtube`, user/password `streamtube`
+- `mailpit` — SMTP capture, SMTP `1025`, web UI `8025`
+- `minio` — S3-compatible object storage, API `9000`, console `9001`, bucket `videos`
+- `redis` — Redis 7, port `6379`, backs the BullMQ queue
+- `video-worker` — FFmpeg worker container; idles on `tail -f /dev/null`, started manually like `nestjs-api`
 
 All verification and teardown commands run on the **host machine**:
 
@@ -60,13 +66,14 @@ docker compose down
 
 ```bash
 npm run start:dev                        # Dev server with hot-reload
+npm run start:worker                     # Video worker (run in the video-worker container)
 npm run build                            # Compile to dist/
 npm run start:prod                       # Run compiled build
 
 npm test                                 # Unit tests
 npm run test:watch                       # Unit tests in watch mode
 npm run test:cov                         # Coverage report
-npm run test:e2e                         # End-to-end tests (always with --runInBand)
+npm run test:e2e                         # End-to-end tests
 
 npx tsc --noEmit                         # Type-check (required before declaring a task done)
 npm run lint                             # ESLint with auto-fix
@@ -84,14 +91,16 @@ curl http://localhost:3000
 
 ### Test execution
 
-Integration and e2e suites share a single test database. They **must** be run with `--runInBand`:
+Integration and e2e suites share a single database, so they must never run in parallel. Serial execution is now enforced by `maxWorkers: 1` in both Jest configs — do not pass `--runInBand`, which bypasses the worker pool and disables the memory recycling described under "Jest Configuration".
 
 ```bash
-docker compose exec nestjs-api npm test -- --runInBand
-docker compose exec nestjs-api npm run test:e2e   # already configured
+docker compose exec nestjs-api npm test
+docker compose exec nestjs-api npm run test:e2e
 ```
 
 Parallel execution causes FK violations, deadlocks, and cross-suite contamination because suites truncate or seed shared tables concurrently.
+
+`src/database/migrations.integration-spec.ts` is the one suite that tears the schema down and rebuilds it. It must stay in sync with every migration: it drops each managed table **and** each enum type, then re-runs all migrations on teardown so later suites find a consistent database.
 
 During active development, run only the tests related to the file being changed (`npm test -- path/to/file.spec.ts`). Before declaring a task done, run the full suite — see the global `CLAUDE.md` → "Definition of Done (Technical)".
 
@@ -121,6 +130,9 @@ These settings are required in `package.json` (jest config) and `test/jest-e2e.j
 
 - `setupFiles: ["dotenv/config"]` — without this, `.env` is not loaded inside the Jest process. `DB_HOST`, `JWT_SECRET`, etc. fall back to undefined or to the host's `localhost`, breaking container-to-container DNS.
 - `testRegex: '.*\\.(spec|integration-spec)\\.ts$'` — covers both unit (`*.spec.ts`) and integration (`*.integration-spec.ts`) suffixes.
+- `maxWorkers: 1` — the suites share one database, so they must run serially. Prefer this over `--runInBand`: in-band execution skips the worker pool entirely, and with it the recycling below.
+- `workerIdleMemoryLimit: '512MB'` — recycles the worker before the module registry accumulated across suites exhausts the VM. Without it the full suite was killed by SIGKILL, with no Jest output at all, on a WSL VM with under 4 GB of RAM.
+- `transformIgnorePatterns` must whitelist `@nestjs/bullmq` and `@nestjs/bull-shared` — they ship ESM that Jest has to transform.
 
 Do not add new test-file suffixes; if a new test type is needed, update the regex deliberately.
 
@@ -149,12 +161,62 @@ NestJS with standard module structure. Source lives in `src/`, compiled output i
 - Each domain feature gets its own module (e.g., `UsersModule`, `VideosModule`) registered in `AppModule`
 - Controllers handle HTTP routing; Services hold business logic; both are scoped to their module
 
+There are **two entrypoints**, both built from the same source tree:
+
+- `src/main.ts` — the HTTP API (`AppModule`), served by the `nestjs-api` container.
+- `src/worker.ts` — a headless application context (`WorkerModule`), run by the `video-worker` container. It registers no controllers; it exists to consume the queue.
+
+Shared infrastructure modules sit beside the domain modules:
+
+- `StorageModule` / `StorageService` — S3-compatible object storage (MinIO locally), including presigned multipart uploads.
+- `QueueModule` — BullMQ registration for the `video-processing` queue, imported by both entrypoints.
+
+## Videos
+
+Phase 03 added the video module, the object storage adapter, the processing queue and the worker. The plan and the decisions behind them live in `docs/phases/phase-03-videos/` and `docs/decisions/technical-decisions-phase-03-videos.md`.
+
+### Upload flow
+
+A 10GB file never passes through the API. The client uploads directly to object storage using presigned multipart URLs, in two API calls:
+
+1. `POST /videos` pre-registers the video as a `draft`, opens a multipart upload against storage, and returns one presigned URL per 100MB part.
+2. The client `PUT`s each part straight to storage and collects the returned ETags.
+3. `POST /videos/:id/complete-upload` sends those ETags back, the API completes the multipart upload, moves the video to `processing` and enqueues a `video.process` job.
+
+The worker then downloads the object, reads duration and metadata with `ffprobe`, extracts a thumbnail frame, uploads it, and marks the video `ready`. After three failed attempts the video is marked `error`.
+
+### Endpoints
+
+| Method | Path | Purpose |
+|---|---|---|
+| POST | `/videos` | Pre-register the draft and open the multipart upload |
+| POST | `/videos/:id/complete-upload` | Finish the upload and enqueue processing |
+| GET | `/videos/:id` | Read the processing status |
+| GET | `/videos/:id/stream` | Stream the bytes, honoring `Range` (200 / 206 / 416) |
+| GET | `/videos/:id/download` | Download the file as an attachment |
+
+All five require a JWT and pass `ChannelOwnerGuard`: in this phase only the owner of the channel reaches a video, in any status. Public and unlisted visibility arrives with Phase 04.
+
+### Status lifecycle
+
+`draft` → `processing` → `ready` | `error`
+
+`complete-upload` accepts a video in `draft` or `uploaded` and moves it straight to `processing`; any other status is rejected as an invalid state.
+
+### Storage and queue contracts
+
+- Bucket `videos`, keys `{videoId}/original.<ext>` and `{videoId}/thumbnail.jpg`.
+- The video `id` (a UUID) is also the public URL identifier, so uniqueness comes from the primary key.
+- Queue `video-processing`, job `video.process`, payload `{ videoId }`, 3 attempts with exponential backoff.
+- Both entrypoints import `QueueModule`, so the API can publish and the worker can consume.
+
 ## Code Conventions
 
 - **TypeScript:** `nodenext` module resolution, `ES2023` target, `strictNullChecks` on, `noImplicitAny` off
 - **Decorators:** `emitDecoratorMetadata` + `experimentalDecorators` enabled — required for NestJS DI
 - **Prettier:** single quotes, trailing commas everywhere
-- **ESLint:** `no-explicit-any` allowed; `no-floating-promises` and `no-unsafe-argument` are warnings
+- **ESLint:** `no-explicit-any` allowed; `no-floating-promises` and `no-unsafe-argument` are warnings; `unbound-method` is off in test files only (`expect(mock.method)` is a documented false positive) and stays on everywhere else
+- **Untyped boundaries in tests:** never reach for `as any`. Narrow once at the boundary with `src/test/http-body.ts` (supertest bodies) or `src/test/fixtures.ts` (partial entity fixtures), so the assertions that follow stay type-checked
 
 ## REST Conventions
 

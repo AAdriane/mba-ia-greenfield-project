@@ -32,4 +32,14 @@ export default tseslint.config(
       "prettier/prettier": ["error", { endOfLine: "auto" }],
     },
   },
+  {
+    // `expect(mock.method)` hands the method to Jest for inspection and never
+    // calls it, so the unbound-`this` hazard this rule guards against cannot
+    // occur. typescript-eslint documents this as a known false positive with
+    // Jest's matchers. Scoped to test files so production code keeps the rule.
+    files: ['**/*.spec.ts', '**/*.integration-spec.ts', '**/*.e2e-spec.ts'],
+    rules: {
+      '@typescript-eslint/unbound-method': 'off',
+    },
+  },
 );

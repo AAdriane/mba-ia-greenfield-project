@@ -2,9 +2,14 @@
   "moduleFileExtensions": ["js", "json", "ts"],
   "rootDir": ".",
   "testEnvironment": "node",
+  "maxWorkers": 1,
+  "workerIdleMemoryLimit": "512MB",
   "testRegex": ".e2e-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },
+  "transformIgnorePatterns": [
+    "node_modules/(?!(@nestjs/bullmq|@nestjs/bull-shared)/)"
+  ],
   "setupFiles": ["dotenv/config"]
 }

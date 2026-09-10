@@ -25,6 +25,7 @@ import {
   createTestDataSource,
 } from '../test/create-test-data-source';
 import { clearMailpitMessages } from '../test/mailpit';
+import type { MailService } from '../mail/mail.service';
 import { AuthService } from './auth.service';
 import { RefreshToken } from './entities/refresh-token.entity';
 import {
@@ -65,12 +66,15 @@ async function createAuthTestModule(): Promise<TestingModule> {
 
 function captureConfirmationToken(authService: AuthService): Promise<string> {
   return new Promise((resolve) => {
-    const mailServiceInstance = (authService as any).mailService;
+    const { mailService } = authService as unknown as {
+      mailService: MailService;
+    };
     jest
-      .spyOn(mailServiceInstance, 'sendConfirmationEmail')
-      .mockImplementationOnce(async (_e: string, _n: string, t: string) =>
-        resolve(t),
-      );
+      .spyOn(mailService, 'sendConfirmationEmail')
+      .mockImplementationOnce((_e: string, _n: string, t: string) => {
+        resolve(t);
+        return Promise.resolve();
+      });
   });
 }
 
@@ -231,7 +235,7 @@ describe('AuthService — confirm (integration)', () => {
 
   it('throws TokenExpiredException for an expired token', async () => {
     const capturePromise = captureConfirmationToken(authService);
-    const { id: userId } = await authService.register({
+    await authService.register({
       email: 'expired@example.com',
       password: 'password123',
     });
@@ -562,12 +566,15 @@ describe('AuthService — logout (integration)', () => {
 
 function capturePasswordResetToken(authService: AuthService): Promise<string> {
   return new Promise((resolve) => {
-    const mailServiceInstance = (authService as any).mailService;
+    const { mailService } = authService as unknown as {
+      mailService: MailService;
+    };
     jest
-      .spyOn(mailServiceInstance, 'sendPasswordResetEmail')
-      .mockImplementationOnce(async (_e: string, _n: string, t: string) =>
-        resolve(t),
-      );
+      .spyOn(mailService, 'sendPasswordResetEmail')
+      .mockImplementationOnce((_e: string, _n: string, t: string) => {
+        resolve(t);
+        return Promise.resolve();
+      });
   });
 }
 

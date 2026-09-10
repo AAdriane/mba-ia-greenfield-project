@@ -48,3 +48,57 @@ export class TokenReuseDetectedException extends DomainException {
     );
   }
 }
+
+export class VideoNotFoundException extends DomainException {
+  constructor() {
+    super('VIDEO_NOT_FOUND', 404, 'Video not found');
+  }
+}
+
+export class ForbiddenChannelAccessException extends DomainException {
+  constructor() {
+    super('FORBIDDEN', 403, 'You do not have access to this video');
+  }
+}
+
+export class InvalidMimeTypeException extends DomainException {
+  constructor() {
+    super('INVALID_MIME_TYPE', 400, 'mimeType must start with "video/"');
+  }
+}
+
+export class InvalidStateException extends DomainException {
+  constructor() {
+    super(
+      'INVALID_STATE',
+      409,
+      'Video is not in a state that allows this operation',
+    );
+  }
+}
+
+export class StorageCompleteFailedException extends DomainException {
+  constructor() {
+    super(
+      'STORAGE_COMPLETE_FAILED',
+      502,
+      'Storage rejected the multipart upload completion',
+    );
+  }
+}
+
+export class VideoNotReadyException extends DomainException {
+  constructor() {
+    super('VIDEO_NOT_READY', 409, 'Video is not ready yet');
+  }
+}
+
+export class RangeNotSatisfiableException extends DomainException {
+  constructor() {
+    super(
+      'RANGE_NOT_SATISFIABLE',
+      416,
+      'The requested Range is outside the size of the video',
+    );
+  }
+}
