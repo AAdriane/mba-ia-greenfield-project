@@ -18,7 +18,7 @@
     "test:watch": "jest --watch",
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
-    "test:integration": "jest --runInBand --testRegex=\"\\.integration-spec\\.ts$\"",
+    "test:integration": "jest --testRegex=\"\\.integration-spec\\.ts$\"",
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "typeorm": "typeorm-ts-node-commonjs",
     "migration:run": "npm run typeorm -- migration:run -d src/database/data-source.ts",
@@ -98,6 +98,8 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
+    "maxWorkers": 1,
+    "workerIdleMemoryLimit": "512MB",
     "testEnvironment": "node",
     "setupFiles": [
       "dotenv/config"
