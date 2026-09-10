@@ -17,6 +17,7 @@ import {
   VideoNotReadyException,
 } from '../common/exceptions/domain.exception';
 import { StorageService } from '../storage/storage.service';
+import type { ObjectStreamResult } from '../storage/storage.service';
 import { CompleteUploadDto } from './dto/complete-upload.dto';
 import { CreateVideoDto } from './dto/create-video.dto';
 import { Video, VideoStatus } from './entities/video.entity';
@@ -195,7 +196,7 @@ export class VideosService {
   ): Promise<VideoStreamResult> {
     const video = await this.assertReady(videoId, userId);
 
-    let result;
+    let result: ObjectStreamResult;
     try {
       result = await this.storageService.getObjectStream(
         video.original_storage_key,

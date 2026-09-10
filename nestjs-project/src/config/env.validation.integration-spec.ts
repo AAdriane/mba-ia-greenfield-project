@@ -1,3 +1,4 @@
+import type * as Joi from 'joi';
 import { envValidationSchema } from './env.validation';
 
 const requiredEnv = {
@@ -10,7 +11,14 @@ const requiredEnv = {
   MINIO_SECRET_KEY: 'secret-key',
 };
 
-const validate = (env: Record<string, string>) =>
+/** Only the key this suite asserts on; Joi types `value` as `any` otherwise. */
+interface ValidatedEnv {
+  SWAGGER_ENABLED: string;
+}
+
+const validate = (
+  env: Record<string, string>,
+): Joi.ValidationResult<ValidatedEnv> =>
   envValidationSchema.validate(
     { ...requiredEnv, ...env },
     { allowUnknown: true, abortEarly: false },
@@ -34,8 +42,11 @@ describe('envValidationSchema — SWAGGER_ENABLED', () => {
   });
 
   it('should apply default false when SWAGGER_ENABLED is not set', () => {
-    const { value, error } = validate({});
-    expect(error).toBeUndefined();
-    expect(value.SWAGGER_ENABLED).toBe('false');
+    const result = validate({});
+    expect(result.error).toBeUndefined();
+    // Narrows the ValidationResult union to its success member, where `value`
+    // is typed; on the failure member Joi types it as `any`.
+    if (result.error) return;
+    expect(result.value.SWAGGER_ENABLED).toBe('false');
   });
 });

@@ -81,7 +81,7 @@ export class VideoProcessingProcessor extends WorkerHost {
     return new Promise((resolve, reject) => {
       ffmpeg.ffprobe(filePath, (err, data) => {
         if (err) {
-          reject(err);
+          reject(err instanceof Error ? err : new Error(String(err)));
         } else {
           resolve(data);
         }

@@ -7,7 +7,7 @@ import request from 'supertest';
 import { App } from 'supertest/types';
 import { DataSource } from 'typeorm';
 import { AppModule } from '../src/app.module';
-import { AuthService } from '../src/auth/auth.service';
+import { MailService } from '../src/mail/mail.service';
 import { Channel } from '../src/channels/entities/channel.entity';
 import { DomainExceptionFilter } from '../src/common/filters/domain-exception.filter';
 import { ValidationExceptionFilter } from '../src/common/filters/validation-exception.filter';
@@ -15,6 +15,28 @@ import { StorageService } from '../src/storage/storage.service';
 import { cleanAllTables } from '../src/test/create-test-data-source';
 import { User } from '../src/users/entities/user.entity';
 import { Video, VideoStatus } from '../src/videos/entities/video.entity';
+import { bodyOf, errorBody } from '../src/test/http-body';
+
+interface TokenBody {
+  access_token: string;
+}
+
+interface UploadPartBody {
+  partNumber: number;
+  url: string;
+}
+
+interface CreateVideoBody {
+  id: string;
+  uploadId: string;
+  partSize: number;
+  parts: UploadPartBody[];
+}
+
+interface VideoStatusBody {
+  id: string;
+  status: string;
+}
 
 describe('videos', () => {
   let app: INestApplication<App>;
@@ -65,13 +87,13 @@ describe('videos', () => {
     email: string,
     password = 'password123',
   ): Promise<string> {
-    const authService = app.get(AuthService);
-    const mailServiceInstance = (authService as any).mailService;
+    const mailService = app.get(MailService);
     let capturedToken = '';
     jest
-      .spyOn(mailServiceInstance, 'sendConfirmationEmail')
-      .mockImplementationOnce(async (_e: string, _n: string, t: string) => {
+      .spyOn(mailService, 'sendConfirmationEmail')
+      .mockImplementationOnce((_e: string, _n: string, t: string) => {
         capturedToken = t;
+        return Promise.resolve();
       });
     await request(app.getHttpServer())
       .post('/auth/register')
@@ -90,7 +112,7 @@ describe('videos', () => {
     const res = await request(app.getHttpServer())
       .post('/auth/login')
       .send({ email, password });
-    return res.body.access_token as string;
+    return bodyOf<TokenBody>(res).access_token;
   }
 
   async function getChannelIdForEmail(email: string): Promise<string> {
@@ -117,7 +139,7 @@ describe('videos', () => {
       });
 
     const parts = await Promise.all(
-      createRes.body.parts.map(
+      bodyOf<CreateVideoBody>(createRes).parts.map(
         async (part: { partNumber: number; url: string }) => {
           const res = await fetch(part.url, {
             method: 'PUT',
@@ -131,7 +153,7 @@ describe('videos', () => {
       ),
     );
 
-    return { videoId: createRes.body.id, parts };
+    return { videoId: bodyOf<CreateVideoBody>(createRes).id, parts };
   }
 
   let readyVideoCounter = 0;
@@ -186,10 +208,12 @@ describe('videos', () => {
       expect(res.body).toHaveProperty('id');
       expect(res.body).toHaveProperty('uploadId');
       expect(res.body).toHaveProperty('partSize');
-      expect(Array.isArray(res.body.parts)).toBe(true);
-      expect(res.body.parts.length).toBeGreaterThan(0);
-      expect(res.body.parts[0]).toHaveProperty('partNumber');
-      expect(res.body.parts[0]).toHaveProperty('url');
+      expect(Array.isArray(bodyOf<CreateVideoBody>(res).parts)).toBe(true);
+      expect(bodyOf<CreateVideoBody>(res).parts.length).toBeGreaterThan(0);
+      expect(bodyOf<CreateVideoBody>(res).parts[0]).toHaveProperty(
+        'partNumber',
+      );
+      expect(bodyOf<CreateVideoBody>(res).parts[0]).toHaveProperty('url');
     });
 
     it('fileSizeBytes over the 10GB limit returns 400', async () => {
@@ -225,7 +249,7 @@ describe('videos', () => {
         });
 
       expect(res.status).toBe(400);
-      expect(res.body.error).toBe('INVALID_MIME_TYPE');
+      expect(errorBody(res).error).toBe('INVALID_MIME_TYPE');
     });
 
     it('created video persists with draft status and the owner channel', async () => {
@@ -246,7 +270,7 @@ describe('videos', () => {
 
       const video = await dataSource
         .getRepository(Video)
-        .findOneByOrFail({ id: res.body.id });
+        .findOneByOrFail({ id: bodyOf<CreateVideoBody>(res).id });
 
       expect(video.status).toBe('draft');
       expect(video.channel_id).toBe(channelId);
@@ -267,8 +291,8 @@ describe('videos', () => {
         .send({ parts });
 
       expect(res.status).toBe(202);
-      expect(res.body.id).toBe(videoId);
-      expect(res.body.status).toBe('processing');
+      expect(bodyOf<VideoStatusBody>(res).id).toBe(videoId);
+      expect(bodyOf<VideoStatusBody>(res).status).toBe('processing');
     });
 
     it('non-owner returns 403', async () => {
@@ -286,7 +310,7 @@ describe('videos', () => {
         .send({ parts });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toBe('FORBIDDEN');
+      expect(errorBody(res).error).toBe('FORBIDDEN');
     });
 
     it('nonexistent video returns 404 VIDEO_NOT_FOUND', async () => {
@@ -300,7 +324,7 @@ describe('videos', () => {
         .send({ parts: [{ partNumber: 1, eTag: '"fake"' }] });
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe('VIDEO_NOT_FOUND');
+      expect(errorBody(res).error).toBe('VIDEO_NOT_FOUND');
     });
 
     it('successful completion publishes the video.process job', async () => {
@@ -347,8 +371,8 @@ describe('videos', () => {
         .set('Authorization', `Bearer ${accessToken}`);
 
       expect(res.status).toBe(200);
-      expect(res.body.id).toBe(video.id);
-      expect(res.body.status).toBe('processing');
+      expect(bodyOf<VideoStatusBody>(res).id).toBe(video.id);
+      expect(bodyOf<VideoStatusBody>(res).status).toBe('processing');
       expect(res.body).toHaveProperty('durationSeconds');
       expect(res.body).toHaveProperty('createdAt');
     });
@@ -372,7 +396,7 @@ describe('videos', () => {
         .set('Authorization', `Bearer ${nonOwnerToken}`);
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toBe('FORBIDDEN');
+      expect(errorBody(res).error).toBe('FORBIDDEN');
     });
 
     it('nonexistent video returns 404 VIDEO_NOT_FOUND', async () => {
@@ -383,7 +407,7 @@ describe('videos', () => {
         .set('Authorization', `Bearer ${accessToken}`);
 
       expect(res.status).toBe(404);
-      expect(res.body.error).toBe('VIDEO_NOT_FOUND');
+      expect(errorBody(res).error).toBe('VIDEO_NOT_FOUND');
     });
   });
 
@@ -442,7 +466,7 @@ describe('videos', () => {
         .set('Authorization', `Bearer ${accessToken}`);
 
       expect(res.status).toBe(409);
-      expect(res.body.error).toBe('VIDEO_NOT_READY');
+      expect(errorBody(res).error).toBe('VIDEO_NOT_READY');
     });
 
     it('non-owner returns 403', async () => {
@@ -462,7 +486,7 @@ describe('videos', () => {
         .set('Authorization', `Bearer ${nonOwnerToken}`);
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toBe('FORBIDDEN');
+      expect(errorBody(res).error).toBe('FORBIDDEN');
     });
   });
 
@@ -502,7 +526,7 @@ describe('videos', () => {
         .set('Authorization', `Bearer ${accessToken}`);
 
       expect(res.status).toBe(409);
-      expect(res.body.error).toBe('VIDEO_NOT_READY');
+      expect(errorBody(res).error).toBe('VIDEO_NOT_READY');
     });
 
     it('non-owner returns 403', async () => {
@@ -522,7 +546,7 @@ describe('videos', () => {
         .set('Authorization', `Bearer ${nonOwnerToken}`);
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toBe('FORBIDDEN');
+      expect(errorBody(res).error).toBe('FORBIDDEN');
     });
   });
 });
