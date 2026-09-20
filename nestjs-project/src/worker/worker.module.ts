@@ -9,6 +9,7 @@ import mailConfig from '../config/mail.config';
 import queueConfig from '../config/queue.config';
 import storageConfig from '../config/storage.config';
 import swaggerConfig from '../config/swagger.config';
+import { StorageModule } from '../storage/storage.module';
 import { VideoProcessingProcessor } from '../videos/video-processing.processor';
 import { VideosModule } from '../videos/videos.module';
 
@@ -42,6 +43,7 @@ import { VideosModule } from '../videos/videos.module';
         synchronize: false,
       }),
     }),
+    StorageModule,
     VideosModule,
   ],
   providers: [VideoProcessingProcessor],
