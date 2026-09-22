@@ -7,6 +7,7 @@ import { tmpdir } from 'os';
 import { join } from 'path';
 import { pipeline } from 'stream/promises';
 import ffmpeg from 'fluent-ffmpeg';
+import { VideoNotFoundException } from '../common/exceptions/domain.exception';
 import { StorageService } from '../storage/storage.service';
 import { VideosService } from './videos.service';
 
@@ -71,10 +72,25 @@ export class VideoProcessingProcessor extends WorkerHost {
       return;
     }
 
+    const { videoId } = job.data;
     this.logger.error(
-      `Video ${job.data.videoId} failed processing after ${job.attemptsMade} attempts`,
+      `Video ${videoId} failed processing after ${job.attemptsMade} attempts`,
     );
-    await this.videosService.markError(job.data.videoId);
+
+    try {
+      await this.videosService.markError(videoId);
+    } catch (error) {
+      // The video may have been deleted while the job was retrying. There is
+      // nothing left to mark, and throwing here would escape the event handler
+      // and take the whole worker process down.
+      if (error instanceof VideoNotFoundException) {
+        this.logger.warn(
+          `Video ${videoId} no longer exists; skipping error status update`,
+        );
+        return;
+      }
+      throw error;
+    }
   }
 
   private probe(filePath: string): Promise<ffmpeg.FfprobeData> {

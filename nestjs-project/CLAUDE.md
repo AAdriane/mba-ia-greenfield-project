@@ -209,6 +209,7 @@ All five require a JWT and pass `ChannelOwnerGuard`: in this phase only the owne
 - The video `id` (a UUID) is also the public URL identifier, so uniqueness comes from the primary key.
 - Queue `video-processing`, job `video.process`, payload `{ videoId }`, 3 attempts with exponential backoff.
 - The queue connection honors `REDIS_DB` (default `0`); tests override it so they run on their own Redis database.
+- After the retries are exhausted the worker marks the video `error`; if the video no longer exists, `onFailed` logs a warning and gives up instead of throwing out of the event handler and killing the worker.
 - Both entrypoints import `QueueModule`, so the API can publish and the worker can consume.
 
 ## Code Conventions
