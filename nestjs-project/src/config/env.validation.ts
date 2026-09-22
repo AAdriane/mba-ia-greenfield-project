@@ -27,4 +27,5 @@ export const envValidationSchema = Joi.object({
   MINIO_BUCKET: Joi.string().default('videos'),
   REDIS_HOST: Joi.string().default('redis'),
   REDIS_PORT: Joi.number().default(6379),
+  REDIS_DB: Joi.number().min(0).default(0),
 });

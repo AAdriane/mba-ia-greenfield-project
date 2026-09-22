@@ -13,6 +13,7 @@ import { DomainExceptionFilter } from '../src/common/filters/domain-exception.fi
 import { ValidationExceptionFilter } from '../src/common/filters/validation-exception.filter';
 import { StorageService } from '../src/storage/storage.service';
 import { cleanAllTables } from '../src/test/create-test-data-source';
+import { resetQueue } from '../src/test/reset-queue';
 import { User } from '../src/users/entities/user.entity';
 import { Video, VideoStatus } from '../src/videos/entities/video.entity';
 import { bodyOf, errorBody } from '../src/test/http-body';
@@ -80,7 +81,7 @@ describe('videos', () => {
   beforeEach(async () => {
     await cleanAllTables(dataSource);
     throttlerStorage.storage.clear();
-    await videoProcessingQueue.drain(true);
+    await resetQueue(videoProcessingQueue);
   });
 
   async function captureConfirmationToken(

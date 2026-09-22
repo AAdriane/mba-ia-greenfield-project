@@ -128,7 +128,7 @@ Conventions for **how to write** each kind of test (mocking patterns, AAA struct
 
 These settings are required in `package.json` (jest config) and `test/jest-e2e.json` for the project's tests to work correctly:
 
-- `setupFiles: ["dotenv/config"]` — without this, `.env` is not loaded inside the Jest process. `DB_HOST`, `JWT_SECRET`, etc. fall back to undefined or to the host's `localhost`, breaking container-to-container DNS.
+- `setupFiles: ["dotenv/config", "<rootDir>/test/setup-test-queue-env.ts"]` — without `dotenv/config`, `.env` is not loaded inside the Jest process. `DB_HOST`, `JWT_SECRET`, etc. fall back to undefined or to the host's `localhost`, breaking container-to-container DNS. The second file runs after it and pins `REDIS_DB` to a dedicated Redis logical database (`15`, override with `TEST_REDIS_DB`), so the always-on `video-worker` container never consumes test jobs and its orphan retries never show up in the tests' `queue.getJobs()` assertions. The e2e config carries the same pair, with the path `<rootDir>/../src/test/setup-test-queue-env.ts`.
 - `testRegex: '.*\\.(spec|integration-spec)\\.ts$'` — covers both unit (`*.spec.ts`) and integration (`*.integration-spec.ts`) suffixes.
 - `maxWorkers: 1` — the suites share one database, so they must run serially. Prefer this over `--runInBand`: in-band execution skips the worker pool entirely, and with it the recycling below.
 - `workerIdleMemoryLimit: '512MB'` — recycles the worker before the module registry accumulated across suites exhausts the VM. Without it the full suite was killed by SIGKILL, with no Jest output at all, on a WSL VM with under 4 GB of RAM.
@@ -208,6 +208,7 @@ All five require a JWT and pass `ChannelOwnerGuard`: in this phase only the owne
 - Bucket `videos`, keys `{videoId}/original.<ext>` and `{videoId}/thumbnail.jpg`.
 - The video `id` (a UUID) is also the public URL identifier, so uniqueness comes from the primary key.
 - Queue `video-processing`, job `video.process`, payload `{ videoId }`, 3 attempts with exponential backoff.
+- The queue connection honors `REDIS_DB` (default `0`); tests override it so they run on their own Redis database.
 - Both entrypoints import `QueueModule`, so the API can publish and the worker can consume.
 
 ## Code Conventions

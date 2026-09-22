@@ -23,4 +23,24 @@ describe('QueueModule', () => {
     await queue.close();
     await module.close();
   }, 15000);
+
+  it('should point the queue at the Redis database index from REDIS_DB', async () => {
+    const previous = process.env.REDIS_DB;
+    process.env.REDIS_DB = '7';
+
+    const module = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({ isGlobal: true, load: [queueConfig] }),
+        QueueModule,
+      ],
+    }).compile();
+
+    const queue = module.get<Queue>(getQueueToken('video-processing'));
+
+    expect(queue.opts.connection).toEqual(expect.objectContaining({ db: 7 }));
+
+    await queue.close();
+    await module.close();
+    process.env.REDIS_DB = previous;
+  }, 15000);
 });
