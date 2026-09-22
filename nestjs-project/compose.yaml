@@ -1,14 +1,22 @@
 services:
   nestjs-api:
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile.dev
+    command: >
+      sh -c "npm install --include=dev && npm run start:dev"
+    env_file:
+      - .env
     ports:
       - 3000:3000
     volumes:
       - .:/home/node/app
     depends_on:
       db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
         condition: service_healthy
       mailpit:
         condition: service_started
@@ -64,6 +72,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+    command: >
+      sh -c "npm install --include=dev && npm run start:worker"
+    env_file:
+      - .env
     volumes:
       - .:/home/node/app
     depends_on:
