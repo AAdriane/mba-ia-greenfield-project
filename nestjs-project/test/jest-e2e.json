@@ -1,5 +1,9 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts"
+  ],
   "rootDir": ".",
   "testEnvironment": "node",
   "maxWorkers": 1,
@@ -11,5 +15,8 @@
   "transformIgnorePatterns": [
     "node_modules/(?!(@nestjs/bullmq|@nestjs/bull-shared)/)"
   ],
-  "setupFiles": ["dotenv/config"]
+  "setupFiles": [
+    "dotenv/config",
+    "<rootDir>/../src/test/setup-test-queue-env.ts"
+  ]
 }

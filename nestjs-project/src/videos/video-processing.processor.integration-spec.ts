@@ -21,6 +21,7 @@ import {
   cleanAllTables,
   createTestDataSource,
 } from '../test/create-test-data-source';
+import { resetQueue } from '../test/reset-queue';
 import { User } from '../users/entities/user.entity';
 import { Video, VideoStatus } from './entities/video.entity';
 import { VideoProcessingProcessor } from './video-processing.processor';
@@ -110,7 +111,7 @@ describe('VideoProcessingProcessor (integration)', () => {
 
   beforeEach(async () => {
     await cleanAllTables(dataSource);
-    await queue.drain(true);
+    await resetQueue(queue);
   });
 
   let counter = 0;

@@ -8,7 +8,7 @@ import queueConfig from '../config/queue.config';
     BullModule.forRootAsync({
       inject: [queueConfig.KEY],
       useFactory: (config: ConfigType<typeof queueConfig>) => ({
-        connection: { host: config.host, port: config.port },
+        connection: { host: config.host, port: config.port, db: config.db },
       }),
     }),
     BullModule.registerQueue({ name: 'video-processing' }),

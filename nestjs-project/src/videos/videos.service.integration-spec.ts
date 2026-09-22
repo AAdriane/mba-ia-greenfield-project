@@ -14,6 +14,7 @@ import {
   cleanAllTables,
   createTestDataSource,
 } from '../test/create-test-data-source';
+import { resetQueue } from '../test/reset-queue';
 import { User } from '../users/entities/user.entity';
 import type { CompleteUploadDto } from './dto/complete-upload.dto';
 import { Video, VideoStatus } from './entities/video.entity';
@@ -58,7 +59,7 @@ describe('VideosService.completeUpload (integration)', () => {
 
   beforeEach(async () => {
     await cleanAllTables(dataSource);
-    await queue.drain(true);
+    await resetQueue(queue);
   });
 
   let counter = 0;

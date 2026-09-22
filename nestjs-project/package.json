@@ -102,7 +102,8 @@
     "workerIdleMemoryLimit": "512MB",
     "testEnvironment": "node",
     "setupFiles": [
-      "dotenv/config"
+      "dotenv/config",
+      "<rootDir>/test/setup-test-queue-env.ts"
     ]
   }
 }
